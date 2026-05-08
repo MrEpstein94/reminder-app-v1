@@ -1,0 +1,18 @@
+{
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node src/index.js"
+  },
+  "dependencies": {
+    "dayjs": "^1.11.13",
+    "dotenv": "^16.4.7",
+    "express": "^5.2.1",
+    "node-cron": "^3.0.3",
+    "node-ical": "^0.26.0",
+    "twilio": "^6.0.0"
+  },
+  "name": "reminder-app-v1",
+  "version": "1.0.0",
+  "main": "src/index.js",
+  "license": "MIT"
+}

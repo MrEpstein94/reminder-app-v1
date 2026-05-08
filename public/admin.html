@@ -1,0 +1,103 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Dad Codes Bot Admin</title>
+    <meta name="theme-color" content="#122033" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="Dad Codes" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/robot-icon-512.png" />
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 128 128'%3E%3Crect width='128' height='128' rx='28' fill='%23111f33'/%3E%3Crect x='28' y='34' width='72' height='54' rx='16' fill='%2385d7ff'/%3E%3Ccircle cx='50' cy='58' r='9' fill='%23111f33'/%3E%3Ccircle cx='78' cy='58' r='9' fill='%23111f33'/%3E%3Crect x='46' y='76' width='36' height='8' rx='4' fill='%23111f33'/%3E%3Crect x='61' y='16' width='6' height='18' rx='3' fill='%23ffd166'/%3E%3Ccircle cx='64' cy='12' r='8' fill='%23ff5d73'/%3E%3Crect x='18' y='52' width='12' height='10' rx='5' fill='%23ffd166'/%3E%3Crect x='98' y='52' width='12' height='10' rx='5' fill='%23ffd166'/%3E%3Crect x='40' y='90' width='10' height='20' rx='5' fill='%2385d7ff'/%3E%3Crect x='78' y='90' width='10' height='20' rx='5' fill='%2385d7ff'/%3E%3C/svg%3E"
+    />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body class="dadCodesPage">
+    <header class="dadHero">
+      <div>
+        <p class="eyebrow">Private Family Helper</p>
+        <h1>Dad Codes Admin</h1>
+        <p class="subhead">Store non-sensitive family info for simple text replies. Do not use this for passwords, banking, Apple ID, email, medical portals, or other sensitive accounts.</p>
+      </div>
+      <div class="dadHeroLinks">
+        <a class="adminNavLink" href="https://desktop-rr2351g-1.tail8569a9.ts.net/dad-codes.html">Open dad phone view</a>
+        <a class="adminNavLink" href="/">Reminder dashboard</a>
+      </div>
+    </header>
+
+    <main class="dadCodesLayout">
+      <section class="panel dadFormPanel">
+        <div class="sectionHeader">
+          <div>
+            <h2 id="formTitle">Add entry</h2>
+            <p class="sectionNote">Keywords are normalized to lowercase words.</p>
+          </div>
+          <button id="resetForm" class="secondary" type="button">Clear</button>
+        </div>
+
+        <form id="entryForm" class="dadEntryForm">
+          <input id="entryId" type="hidden" />
+          <div class="field">
+            <label for="keyword">Keyword</label>
+            <input id="keyword" autocomplete="off" placeholder="gate" required />
+          </div>
+          <div class="field">
+            <label for="title">Title</label>
+            <input id="title" autocomplete="off" placeholder="Neighborhood Gate" required />
+          </div>
+          <div class="field">
+            <label for="responseText">Response text</label>
+            <textarea id="responseText" rows="5" placeholder="The neighborhood gate code is 1234." required></textarea>
+          </div>
+          <div class="controlGroup twoColumn dadFormGrid">
+            <div class="field">
+              <label for="category">Category</label>
+              <input id="category" autocomplete="off" placeholder="Gate Codes" />
+            </div>
+            <label class="dadActiveToggle">
+              <input id="active" type="checkbox" checked />
+              <span>Active</span>
+            </label>
+          </div>
+          <button id="saveEntry" type="submit">Save entry</button>
+        </form>
+      </section>
+
+      <section class="panel dadTablePanel">
+        <div class="sectionHeader dadTools">
+          <div>
+            <h2>Saved entries</h2>
+            <p class="sectionNote">Search, edit, or delete text bot replies.</p>
+          </div>
+          <div class="field dadSearchField">
+            <label for="search">Search</label>
+            <input id="search" autocomplete="off" placeholder="Search entries" />
+          </div>
+        </div>
+
+        <div class="dadTableWrap">
+          <table class="dadCodesTable">
+            <thead>
+              <tr>
+                <th>Keyword</th>
+                <th>Title</th>
+                <th>Response</th>
+                <th>Category</th>
+                <th>Active</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="entriesBody"></tbody>
+          </table>
+        </div>
+        <p id="emptyState" class="dadEmptyState">No entries found.</p>
+      </section>
+    </main>
+
+    <div id="toast" class="toast" role="status"></div>
+    <script src="/admin.js"></script>
+  </body>
+</html>
