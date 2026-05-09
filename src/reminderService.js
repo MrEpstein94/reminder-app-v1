@@ -15,6 +15,14 @@ const notificationStatePath = path.join(__dirname, "..", "data", "notification-s
 const calendarStatePath = path.join(__dirname, "..", "data", "calendar-state.json");
 const defaultPublicBaseUrl = "https://desktop-rr2351g-1.tail8569a9.ts.net";
 
+function getPublicBaseUrl() {
+  return (
+    process.env.APP_PUBLIC_ACTION_BASE_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    defaultPublicBaseUrl
+  );
+}
+
 function splitCalendarUrls(rawValue) {
   return String(rawValue || "")
     .split(",")
@@ -442,8 +450,7 @@ async function sendProfileSummary(profileId, subject = "Daily reminder summary",
 
   const { getTasksForProfile, buildTaskSummaryMessage } = require("./taskService");
   const tasks = await getTasksForProfile(profileId, { days: 1 });
-  const baseUrl =
-    process.env.APP_PUBLIC_ACTION_BASE_URL || defaultPublicBaseUrl;
+  const baseUrl = getPublicBaseUrl();
   return sendProfileMessage(
     profile,
     subject,
@@ -594,8 +601,7 @@ async function sendProfileCheckIn(profileId, subject = "Task check-in") {
     return { skipped: true };
   }
 
-  const baseUrl =
-    process.env.APP_PUBLIC_ACTION_BASE_URL || defaultPublicBaseUrl;
+  const baseUrl = getPublicBaseUrl();
   const deliveries = await sendProfileMessage(
     profile,
     subject,

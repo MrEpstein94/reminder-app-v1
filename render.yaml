@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: reminder-app-v1
+    runtime: node
+    plan: starter
+    buildCommand: npm ci
+    startCommand: npm start
+    healthCheckPath: /healthz
+    disk:
+      name: data
+      mountPath: /opt/render/project/src/data
+      sizeGB: 1

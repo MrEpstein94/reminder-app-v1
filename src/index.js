@@ -39,7 +39,7 @@ const {
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
-const host = process.env.HOST || "127.0.0.1";
+const host = process.env.HOST || "0.0.0.0";
 const scheduledJobs = new Map();
 const defaultPublicBaseUrl = "https://desktop-rr2351g-1.tail8569a9.ts.net";
 
@@ -61,6 +61,10 @@ app.use(
     },
   })
 );
+
+app.get("/healthz", (_req, res) => {
+  res.status(200).json({ ok: true });
+});
 
 function cronForProfile(profile) {
   const hour = String(profile.dailySummaryHour || "5").padStart(2, "0");
@@ -848,7 +852,9 @@ syncPublicDadCodesMirror();
 
 if (hasSendblueConfig()) {
   const publicBaseUrl =
-    process.env.APP_PUBLIC_ACTION_BASE_URL || defaultPublicBaseUrl;
+    process.env.APP_PUBLIC_ACTION_BASE_URL ||
+    process.env.RENDER_EXTERNAL_URL ||
+    defaultPublicBaseUrl;
   ensureSendblueReceiveWebhook(`${publicBaseUrl}/api/sendblue/webhook`).catch((error) => {
     console.error(`Sendblue webhook setup failed: ${error.message}`);
   });
