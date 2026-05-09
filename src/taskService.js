@@ -1,17 +1,13 @@
-const fs = require("fs");
-const path = require("path");
 const crypto = require("crypto");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezonePlugin = require("dayjs/plugin/timezone");
 const { getSettings, getCalendarEventsForProfile } = require("./reminderService");
+const { store } = require("./store");
 
 dayjs.extend(utc);
 dayjs.extend(timezonePlugin);
 
-const taskStatePath = path.join(__dirname, "..", "data", "task-state.json");
-const publicActionSecretPath = path.join(__dirname, "..", "data", "public-action-secret.txt");
-const actionLinksPath = path.join(__dirname, "..", "data", "action-links.json");
 const completeActionLabel = "Click When Task is Completed";
 const heartWormRule = {
   profileId: "josh",
@@ -19,54 +15,24 @@ const heartWormRule = {
   intervalDays: 30,
 };
 
-function ensureTaskStateFile() {
-  if (fs.existsSync(taskStatePath)) {
-    return;
-  }
-
-  fs.mkdirSync(path.dirname(taskStatePath), { recursive: true });
-  fs.writeFileSync(taskStatePath, JSON.stringify({ completed: {}, history: [], reschedules: {} }, null, 2));
-}
-
 function getTaskState() {
-  ensureTaskStateFile();
-  const state = JSON.parse(fs.readFileSync(taskStatePath, "utf8"));
+  const state = store.getJson("taskState", () => ({
+    completed: {},
+    history: [],
+    reschedules: {},
+  }));
   state.completed = state.completed || {};
   state.history = Array.isArray(state.history) ? state.history : [];
   state.reschedules = state.reschedules || {};
   return state;
 }
 
-function saveTaskState(state) {
-  fs.mkdirSync(path.dirname(taskStatePath), { recursive: true });
-  fs.writeFileSync(taskStatePath, JSON.stringify(state, null, 2));
-}
-
-function ensureActionLinksFile() {
-  if (fs.existsSync(actionLinksPath)) {
-    return;
-  }
-
-  fs.mkdirSync(path.dirname(actionLinksPath), { recursive: true });
-  fs.writeFileSync(actionLinksPath, JSON.stringify({ links: {} }, null, 2));
-}
-
-function getActionLinks() {
-  ensureActionLinksFile();
-  return JSON.parse(fs.readFileSync(actionLinksPath, "utf8"));
-}
-
-function saveActionLinks(state) {
-  fs.mkdirSync(path.dirname(actionLinksPath), { recursive: true });
-  fs.writeFileSync(actionLinksPath, JSON.stringify(state, null, 2));
+async function saveTaskState(state) {
+  return store.setJson("taskState", state);
 }
 
 function getPublicActionSecret() {
-  if (!fs.existsSync(publicActionSecretPath)) {
-    fs.mkdirSync(path.dirname(publicActionSecretPath), { recursive: true });
-    fs.writeFileSync(publicActionSecretPath, crypto.randomBytes(32).toString("hex"));
-  }
-  return fs.readFileSync(publicActionSecretPath, "utf8").trim();
+  return store.getPublicActionSecret();
 }
 
 function stableTaskId(profileId, event) {
@@ -135,46 +101,38 @@ function verifyActionToken(token) {
 }
 
 function createShortActionCode(profileId, taskId, action, expiresAt) {
-  const state = getActionLinks();
-  const existing = Object.entries(state.links).find(([, link]) =>
-    link.profileId === profileId &&
-    link.taskId === taskId &&
-    link.action === action &&
-    Number(link.expiresAt) > Date.now()
-  );
-
-  if (existing) {
-    return existing[0];
-  }
-
-  let code = "";
-  do {
-    code = crypto.randomBytes(5).toString("base64url");
-  } while (state.links[code]);
-
-  state.links[code] = {
-    profileId,
-    taskId,
-    action,
-    expiresAt,
-    createdAt: new Date().toISOString(),
-  };
-  saveActionLinks(state);
-  return code;
+  const payload = `${profileId}|${taskId}|${action}|${expiresAt}`;
+  const signature = crypto
+    .createHmac("sha256", getPublicActionSecret())
+    .update(`short|${payload}`)
+    .digest("base64url")
+    .slice(0, 24);
+  return Buffer.from(`${payload}|${signature}`, "utf8").toString("base64url");
 }
 
 function verifyActionCode(code) {
-  const state = getActionLinks();
-  const link = state.links[String(code || "")];
-  if (!link || Date.now() > Number(link.expiresAt)) {
+  try {
+    const decoded = Buffer.from(String(code || ""), "base64url").toString("utf8");
+    const [profileId, taskId, action, expiresAt, signature] = decoded.split("|");
+    if (!profileId || !taskId || !action || !expiresAt || !signature) {
+      throw new Error("Invalid token.");
+    }
+
+    const payload = `${profileId}|${taskId}|${action}|${expiresAt}`;
+    const expected = crypto
+      .createHmac("sha256", getPublicActionSecret())
+      .update(`short|${payload}`)
+      .digest("base64url")
+      .slice(0, 24);
+
+    if (signature !== expected || Date.now() > Number(expiresAt)) {
+      throw new Error("Invalid token.");
+    }
+
+    return { profileId, taskId, action };
+  } catch (_error) {
     throw new Error("Invalid or expired action link.");
   }
-
-  return {
-    profileId: link.profileId,
-    taskId: link.taskId,
-    action: link.action,
-  };
 }
 
 function buildTaskFromEvent(profileId, timezone, event, completedMap) {
@@ -362,7 +320,7 @@ async function markTaskComplete(profileId, taskId, via = "dashboard") {
     };
   }
 
-  saveTaskState(state);
+  await saveTaskState(state);
 
   return {
     ok: true,
@@ -379,7 +337,7 @@ async function markTaskIncomplete(profileId, taskId) {
     if (state.reschedules[rescheduleKey]?.sourceTaskId === taskId) {
       delete state.reschedules[rescheduleKey];
     }
-    saveTaskState(state);
+    await saveTaskState(state);
   }
 
   return {
@@ -388,7 +346,7 @@ async function markTaskIncomplete(profileId, taskId) {
   };
 }
 
-function getCompletionHistory(profileId, options = {}) {
+async function getCompletionHistory(profileId, options = {}) {
   const limit = Math.max(1, Math.min(200, Number(options.limit || 50)));
   const state = getTaskState();
   const historyTaskIds = new Set(state.history.map((entry) => entry.taskId));

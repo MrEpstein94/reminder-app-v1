@@ -36,6 +36,7 @@ const {
   updateDadCode,
   deleteDadCode,
 } = require("./dadCodesDb");
+const { store } = require("./store");
 
 const app = express();
 const port = Number(process.env.PORT || 3000);
@@ -489,9 +490,9 @@ app.get("/api/settings", (req, res) => {
   res.json(getSettings({ includeSecrets: false }));
 });
 
-app.post("/api/settings", (req, res) => {
+app.post("/api/settings", async (req, res) => {
   try {
-    const saved = saveSettings(req.body);
+    const saved = await saveSettings(req.body);
     refreshSchedules();
     res.json(saved);
   } catch (error) {
@@ -513,9 +514,9 @@ app.get("/api/dad-codes", (req, res) => {
   }
 });
 
-app.post("/api/dad-codes", (req, res) => {
+app.post("/api/dad-codes", async (req, res) => {
   try {
-    const created = createDadCode(req.body);
+    const created = await createDadCode(req.body);
     syncPublicDadCodesMirror();
     res.status(201).json(created);
   } catch (error) {
@@ -523,9 +524,9 @@ app.post("/api/dad-codes", (req, res) => {
   }
 });
 
-app.put("/api/dad-codes/:id", (req, res) => {
+app.put("/api/dad-codes/:id", async (req, res) => {
   try {
-    const updated = updateDadCode(req.params.id, req.body);
+    const updated = await updateDadCode(req.params.id, req.body);
     syncPublicDadCodesMirror();
     res.json(updated);
   } catch (error) {
@@ -533,9 +534,9 @@ app.put("/api/dad-codes/:id", (req, res) => {
   }
 });
 
-app.delete("/api/dad-codes/:id", (req, res) => {
+app.delete("/api/dad-codes/:id", async (req, res) => {
   try {
-    const deleted = deleteDadCode(req.params.id);
+    const deleted = await deleteDadCode(req.params.id);
     syncPublicDadCodesMirror();
     res.json(deleted);
   } catch (error) {
@@ -565,10 +566,10 @@ app.get("/api/tasks/:profileId", async (req, res) => {
   }
 });
 
-app.get("/api/completions/:profileId", (req, res) => {
+app.get("/api/completions/:profileId", async (req, res) => {
   try {
     res.json({
-      completions: getCompletionHistory(req.params.profileId, {
+      completions: await getCompletionHistory(req.params.profileId, {
         limit: Number(req.query.limit || 50),
       }),
     });
@@ -847,19 +848,27 @@ app.post("/api/send-checkin-test/:profileId", async (req, res) => {
   }
 });
 
-refreshSchedules();
-syncPublicDadCodesMirror();
+async function start() {
+  await store.init();
+  refreshSchedules();
+  syncPublicDadCodesMirror();
 
-if (hasSendblueConfig()) {
-  const publicBaseUrl =
-    process.env.APP_PUBLIC_ACTION_BASE_URL ||
-    process.env.RENDER_EXTERNAL_URL ||
-    defaultPublicBaseUrl;
-  ensureSendblueReceiveWebhook(`${publicBaseUrl}/api/sendblue/webhook`).catch((error) => {
-    console.error(`Sendblue webhook setup failed: ${error.message}`);
+  if (hasSendblueConfig()) {
+    const publicBaseUrl =
+      process.env.APP_PUBLIC_ACTION_BASE_URL ||
+      process.env.RENDER_EXTERNAL_URL ||
+      defaultPublicBaseUrl;
+    ensureSendblueReceiveWebhook(`${publicBaseUrl}/api/sendblue/webhook`).catch((error) => {
+      console.error(`Sendblue webhook setup failed: ${error.message}`);
+    });
+  }
+
+  app.listen(port, host, () => {
+    console.log(`Reminder app running at http://${host}:${port}`);
   });
 }
 
-app.listen(port, host, () => {
-  console.log(`Reminder app running at http://${host}:${port}`);
+start().catch((error) => {
+  console.error(`Reminder app failed to start: ${error.message}`);
+  process.exit(1);
 });

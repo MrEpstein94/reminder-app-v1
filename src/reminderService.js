@@ -1,18 +1,14 @@
-const fs = require("fs");
-const path = require("path");
 const crypto = require("crypto");
 const dayjs = require("dayjs");
 const utc = require("dayjs/plugin/utc");
 const timezonePlugin = require("dayjs/plugin/timezone");
 const ical = require("node-ical");
 const { hasSendblueConfig, sendSendblueMessage } = require("./sendblueService");
+const { store } = require("./store");
 
 dayjs.extend(utc);
 dayjs.extend(timezonePlugin);
 
-const settingsPath = path.join(__dirname, "..", "data", "settings.json");
-const notificationStatePath = path.join(__dirname, "..", "data", "notification-state.json");
-const calendarStatePath = path.join(__dirname, "..", "data", "calendar-state.json");
 const defaultPublicBaseUrl = "https://desktop-rr2351g-1.tail8569a9.ts.net";
 
 function getPublicBaseUrl() {
@@ -136,21 +132,11 @@ function defaultSettings() {
   };
 }
 
-function ensureSettingsFile() {
-  if (fs.existsSync(settingsPath)) {
-    return;
-  }
-
-  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, JSON.stringify(defaultSettings(), null, 2));
-}
-
 function getSettings(options = {}) {
-  ensureSettingsFile();
-  return JSON.parse(fs.readFileSync(settingsPath, "utf8"));
+  return store.getJson("settings", defaultSettings);
 }
 
-function saveSettings(nextSettings = {}) {
+async function saveSettings(nextSettings = {}) {
   const current = getSettings({ includeSecrets: true });
   const currentProfiles = new Map(current.profiles.map((profile) => [profile.id, profile]));
   const settings = {
@@ -159,9 +145,7 @@ function saveSettings(nextSettings = {}) {
     ),
   };
 
-  fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
-  fs.writeFileSync(settingsPath, JSON.stringify(settings, null, 2));
-  return settings;
+  return store.setJson("settings", settings);
 }
 
 function getProfile(settings, profileId) {
@@ -458,42 +442,20 @@ async function sendProfileSummary(profileId, subject = "Daily reminder summary",
   );
 }
 
-function ensureNotificationStateFile() {
-  if (fs.existsSync(notificationStatePath)) {
-    return;
-  }
-
-  fs.mkdirSync(path.dirname(notificationStatePath), { recursive: true });
-  fs.writeFileSync(notificationStatePath, JSON.stringify({ sent: {} }, null, 2));
-}
-
 function getNotificationState() {
-  ensureNotificationStateFile();
-  return JSON.parse(fs.readFileSync(notificationStatePath, "utf8"));
+  return store.getJson("notificationState", () => ({ sent: {} }));
 }
 
-function saveNotificationState(state) {
-  fs.mkdirSync(path.dirname(notificationStatePath), { recursive: true });
-  fs.writeFileSync(notificationStatePath, JSON.stringify(state, null, 2));
-}
-
-function ensureCalendarStateFile() {
-  if (fs.existsSync(calendarStatePath)) {
-    return;
-  }
-
-  fs.mkdirSync(path.dirname(calendarStatePath), { recursive: true });
-  fs.writeFileSync(calendarStatePath, JSON.stringify({ profiles: {} }, null, 2));
+async function saveNotificationState(state) {
+  return store.setJson("notificationState", state);
 }
 
 function getCalendarState() {
-  ensureCalendarStateFile();
-  return JSON.parse(fs.readFileSync(calendarStatePath, "utf8"));
+  return store.getJson("calendarState", () => ({ profiles: {} }));
 }
 
-function saveCalendarState(state) {
-  fs.mkdirSync(path.dirname(calendarStatePath), { recursive: true });
-  fs.writeFileSync(calendarStatePath, JSON.stringify(state, null, 2));
+async function saveCalendarState(state) {
+  return store.setJson("calendarState", state);
 }
 
 function delay(ms) {
@@ -519,7 +481,7 @@ async function waitForCalendarRefresh(profile, options = {}) {
       signature,
       checkedAt: new Date().toISOString(),
     };
-    saveCalendarState(state);
+    await saveCalendarState(state);
     return { changed: false, waitedMs: 0, rawEvents };
   }
 
@@ -534,7 +496,7 @@ async function waitForCalendarRefresh(profile, options = {}) {
     signature,
     checkedAt: new Date().toISOString(),
   };
-  saveCalendarState(state);
+  await saveCalendarState(state);
 
   return {
     changed: signature !== previousSignature,
@@ -584,7 +546,7 @@ async function sendDueEventNotifications(profileId, now = new Date()) {
   }
 
   if (sent.length) {
-    saveNotificationState(state);
+    await saveNotificationState(state);
   }
 
   return { skipped: false, sentCount: sent.length };
