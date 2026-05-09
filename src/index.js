@@ -754,19 +754,6 @@ app.post("/api/replies/:profileId", async (req, res) => {
   }
 });
 
-app.post("/api/twilio/reply/:profileId", async (req, res) => {
-  try {
-    const result = await processReply(req.params.profileId, req.body.Body, "sms");
-    res.type("text/plain").send(
-      result.ok && result.matched
-        ? "Task marked complete."
-        : "Use the completion link in the reminder message."
-    );
-  } catch (error) {
-    res.type("text/plain").status(400).send(error.message);
-  }
-});
-
 app.post("/api/sendblue/webhook", async (req, res) => {
   try {
     if (!isValidSendblueWebhook(req)) {
