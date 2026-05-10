@@ -175,11 +175,24 @@ function formatTimedRange(start, end, timezone) {
 }
 
 async function loadCalendarEvents(calendarUrls) {
-  const parsedCalendars = await Promise.all(
-    calendarUrls.map(async (url) => Object.values(await ical.async.fromURL(url)))
+  const results = await Promise.allSettled(
+    calendarUrls.map(async (url) => ({
+      url,
+      events: Object.values(await ical.async.fromURL(url)),
+    }))
   );
 
-  return parsedCalendars.flat().filter((event) => event.type === "VEVENT" && event.start);
+  const failed = results.filter((result) => result.status === "rejected");
+  if (failed.length) {
+    for (const result of failed) {
+      console.warn(`Calendar feed skipped: ${result.reason?.message || result.reason}`);
+    }
+  }
+
+  return results
+    .filter((result) => result.status === "fulfilled")
+    .flatMap((result) => result.value.events)
+    .filter((event) => event.type === "VEVENT" && event.start);
 }
 
 function calendarSignature(events) {
