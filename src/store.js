@@ -170,19 +170,42 @@ function buildConnectionString() {
   return `postgresql://postgres:${encodeURIComponent(password)}@db.${ref}.supabase.co:5432/postgres`;
 }
 
+function hasSupabaseRestConfig() {
+  return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
+}
+
+function buildSupabaseRestConfig() {
+  const baseUrl = String(process.env.SUPABASE_URL || "").trim().replace(/\/$/, "");
+  const serviceRoleKey = String(process.env.SUPABASE_SERVICE_ROLE_KEY || "").trim();
+  if (!baseUrl || !serviceRoleKey) {
+    return null;
+  }
+  return {
+    baseUrl,
+    serviceRoleKey,
+    restUrl: `${baseUrl}/rest/v1`,
+  };
+}
+
 class AppStore {
   constructor() {
-    this.mode = buildConnectionString() ? "supabase" : "local";
+    this.mode = buildConnectionString() ? "supabase" : hasSupabaseRestConfig() ? "supabase-rest" : "local";
     this.stateCache = new Map();
     this.dadCodes = [];
     this.nextDadCodeId = 1;
     this.initPromise = null;
     this.pool = null;
+    this.restConfig = null;
   }
 
   async init() {
     if (!this.initPromise) {
-      this.initPromise = this.mode === "supabase" ? this.initSupabase() : this.initLocal();
+      this.initPromise =
+        this.mode === "supabase"
+          ? this.initSupabase()
+          : this.mode === "supabase-rest"
+            ? this.initSupabaseRest()
+            : this.initLocal();
     }
     return this.initPromise;
   }
@@ -276,6 +299,80 @@ class AppStore {
     }
   }
 
+  async initSupabaseRest() {
+    this.restConfig = buildSupabaseRestConfig();
+    if (!this.restConfig) {
+      throw new Error("Supabase REST mode requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.");
+    }
+
+    const [stateRows, dadCodeRows] = await Promise.all([
+      this.restRequest("/app_state?select=key,value"),
+      this.restRequest(
+        '/dad_codes?select=id,keyword,title,response_text,category,active,created_at,updated_at&order=category.asc.nullslast,keyword.asc'
+      ),
+    ]);
+
+    for (const row of stateRows) {
+      this.stateCache.set(row.key, row.value);
+    }
+
+    if (dadCodeRows.length === 0) {
+      const imported = loadLocalDadCodes();
+      for (const entry of imported) {
+        await this.restRequest("/dad_codes", {
+          method: "POST",
+          headers: {
+            Prefer: "resolution=merge-duplicates,return=representation",
+          },
+          body: [
+            {
+              id: Number(entry.id),
+              keyword: entry.keyword,
+              title: entry.title,
+              response_text: entry.responseText,
+              category: entry.category,
+              active: Boolean(entry.active),
+              created_at: entry.createdAt || new Date().toISOString(),
+              updated_at: entry.updatedAt || new Date().toISOString(),
+            },
+          ],
+        });
+      }
+
+      const seededRows = await this.restRequest(
+        '/dad_codes?select=id,keyword,title,response_text,category,active,created_at,updated_at&order=category.asc.nullslast,keyword.asc'
+      );
+      this.dadCodes = seededRows.map((row) =>
+        rowToEntry({
+          ...row,
+          responseText: row.response_text,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        })
+      );
+    } else {
+      this.dadCodes = dadCodeRows.map((row) =>
+        rowToEntry({
+          ...row,
+          responseText: row.response_text,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        })
+      );
+    }
+
+    this.nextDadCodeId = this.dadCodes.reduce((max, entry) => Math.max(max, Number(entry.id)), 0) + 1;
+
+    for (const [key, filePath] of Object.entries(stateFiles)) {
+      if (!this.stateCache.has(key)) {
+        const localValue = readJsonFile(filePath);
+        if (localValue !== null) {
+          await this.setJson(key, localValue);
+        }
+      }
+    }
+  }
+
   getJson(key, fallbackFactory) {
     if (!this.stateCache.has(key)) {
       const fallback = clone(fallbackFactory());
@@ -305,14 +402,55 @@ class AppStore {
       return clone(nextValue);
     }
 
-    await this.pool.query(
-      `INSERT INTO app_state (key, value, updated_at)
-       VALUES ($1, $2::jsonb, NOW())
-       ON CONFLICT (key)
-       DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
-      [key, JSON.stringify(nextValue)]
-    );
+    if (this.mode === "supabase") {
+      await this.pool.query(
+        `INSERT INTO app_state (key, value, updated_at)
+         VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (key)
+         DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+        [key, JSON.stringify(nextValue)]
+      );
+      return clone(nextValue);
+    }
+
+    await this.restRequest("/app_state?on_conflict=key", {
+      method: "POST",
+      headers: {
+        Prefer: "resolution=merge-duplicates,return=minimal",
+      },
+      body: [
+        {
+          key,
+          value: nextValue,
+        },
+      ],
+    });
     return clone(nextValue);
+  }
+
+  async restRequest(pathname, options = {}) {
+    if (!this.restConfig) {
+      throw new Error("Supabase REST config is not initialized.");
+    }
+
+    const response = await fetch(`${this.restConfig.restUrl}${pathname}`, {
+      method: options.method || "GET",
+      headers: {
+        apikey: this.restConfig.serviceRoleKey,
+        Authorization: `Bearer ${this.restConfig.serviceRoleKey}`,
+        "Content-Type": "application/json",
+        ...(options.headers || {}),
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
+    });
+
+    if (!response.ok) {
+      const body = await response.text();
+      throw new Error(`Supabase REST request failed (${response.status}): ${body || response.statusText}`);
+    }
+
+    const text = await response.text();
+    return text ? JSON.parse(text) : null;
   }
 
   getPublicActionSecret() {
@@ -460,43 +598,93 @@ class AppStore {
       return;
     }
 
+    if (this.mode === "supabase") {
+      if (kind === "create") {
+        await this.pool.query(
+          `INSERT INTO dad_codes (id, keyword, title, response_text, category, active, created_at, updated_at)
+           VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz)`,
+          [
+            Number(entry.id),
+            entry.keyword,
+            entry.title,
+            entry.responseText,
+            entry.category,
+            Boolean(entry.active),
+            entry.createdAt,
+            entry.updatedAt,
+          ]
+        );
+        return;
+      }
+
+      if (kind === "update") {
+        await this.pool.query(
+          `UPDATE dad_codes
+           SET keyword = $1, title = $2, response_text = $3, category = $4, active = $5, updated_at = $6::timestamptz
+           WHERE id = $7`,
+          [
+            entry.keyword,
+            entry.title,
+            entry.responseText,
+            entry.category,
+            Boolean(entry.active),
+            entry.updatedAt,
+            Number(entry.id),
+          ]
+        );
+        return;
+      }
+
+      await this.pool.query("DELETE FROM dad_codes WHERE id = $1", [Number(entry.id)]);
+      return;
+    }
+
     if (kind === "create") {
-      await this.pool.query(
-        `INSERT INTO dad_codes (id, keyword, title, response_text, category, active, created_at, updated_at)
-         VALUES ($1, $2, $3, $4, $5, $6, $7::timestamptz, $8::timestamptz)`,
-        [
-          Number(entry.id),
-          entry.keyword,
-          entry.title,
-          entry.responseText,
-          entry.category,
-          Boolean(entry.active),
-          entry.createdAt,
-          entry.updatedAt,
-        ]
-      );
+      await this.restRequest("/dad_codes", {
+        method: "POST",
+        headers: {
+          Prefer: "return=minimal",
+        },
+        body: [
+          {
+            id: Number(entry.id),
+            keyword: entry.keyword,
+            title: entry.title,
+            response_text: entry.responseText,
+            category: entry.category,
+            active: Boolean(entry.active),
+            created_at: entry.createdAt,
+            updated_at: entry.updatedAt,
+          },
+        ],
+      });
       return;
     }
 
     if (kind === "update") {
-      await this.pool.query(
-        `UPDATE dad_codes
-         SET keyword = $1, title = $2, response_text = $3, category = $4, active = $5, updated_at = $6::timestamptz
-         WHERE id = $7`,
-        [
-          entry.keyword,
-          entry.title,
-          entry.responseText,
-          entry.category,
-          Boolean(entry.active),
-          entry.updatedAt,
-          Number(entry.id),
-        ]
-      );
+      await this.restRequest(`/dad_codes?id=eq.${Number(entry.id)}`, {
+        method: "PATCH",
+        headers: {
+          Prefer: "return=minimal",
+        },
+        body: {
+          keyword: entry.keyword,
+          title: entry.title,
+          response_text: entry.responseText,
+          category: entry.category,
+          active: Boolean(entry.active),
+          updated_at: entry.updatedAt,
+        },
+      });
       return;
     }
 
-    await this.pool.query("DELETE FROM dad_codes WHERE id = $1", [Number(entry.id)]);
+    await this.restRequest(`/dad_codes?id=eq.${Number(entry.id)}`, {
+      method: "DELETE",
+      headers: {
+        Prefer: "return=minimal",
+      },
+    });
   }
 }
 
