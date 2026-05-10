@@ -11,6 +11,7 @@ const {
   sendProfileSummary,
   sendProfileCheckIn,
   sendDueEventNotifications,
+  getMessageHistory,
 } = require("./reminderService");
 const {
   getTasksForProfile,
@@ -570,6 +571,18 @@ app.get("/api/completions/:profileId", async (req, res) => {
   try {
     res.json({
       completions: await getCompletionHistory(req.params.profileId, {
+        limit: Number(req.query.limit || 50),
+      }),
+    });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
+});
+
+app.get("/api/messages/:profileId", async (req, res) => {
+  try {
+    res.json({
+      messages: await getMessageHistory(req.params.profileId, {
         limit: Number(req.query.limit || 50),
       }),
     });

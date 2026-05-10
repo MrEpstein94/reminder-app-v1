@@ -14,6 +14,7 @@ const stateFiles = {
   notificationState: path.join(localStateDir, "notification-state.json"),
   calendarState: path.join(localStateDir, "calendar-state.json"),
   taskState: path.join(localStateDir, "task-state.json"),
+  messageLog: path.join(localStateDir, "message-log.json"),
 };
 
 const seedEntries = [

@@ -22,6 +22,7 @@ const nodes = {
   events: document.querySelector("#events"),
   eventCount: document.querySelector("#eventCount"),
   completionLog: document.querySelector("#completionLog"),
+  messageLog: document.querySelector("#messageLog"),
   toast: document.querySelector("#toast"),
 };
 
@@ -139,6 +140,7 @@ function renderProfiles() {
       render();
       loadEvents();
       loadCompletionLog();
+      loadMessageLog();
     });
     nodes.profileList.appendChild(button);
   });
@@ -191,6 +193,18 @@ async function loadCompletionLog() {
   renderCompletionLog(body.completions || []);
 }
 
+async function loadMessageLog() {
+  nodes.messageLog.innerHTML = '<p class="muted">Loading sent messages...</p>';
+  const response = await fetch(`/api/messages/${activeProfileId}`);
+  const body = await response.json();
+  if (!response.ok) {
+    nodes.messageLog.innerHTML = `<p class="muted">${escapeHtml(body.error)}</p>`;
+    return;
+  }
+
+  renderMessageLog(body.messages || []);
+}
+
 function renderCompletionLog(completions) {
   if (completions.length === 0) {
     nodes.completionLog.innerHTML = '<p class="muted">No completed tasks recorded yet.</p>';
@@ -206,6 +220,40 @@ function renderCompletionLog(completions) {
           ${entry.dueDateKey ? ` · Was due ${escapeHtml(entry.dueDateKey)}` : ""}
           ${entry.via ? ` · ${escapeHtml(entry.via)}` : ""}
         </div>
+      </article>
+    `)
+    .join("");
+}
+
+function labelForMessageKind(kind) {
+  switch (kind) {
+    case "morning-summary":
+      return "Morning summary";
+    case "evening-check-in":
+      return "Evening check-in";
+    case "event-reminder":
+      return "Event reminder";
+    default:
+      return "Message";
+  }
+}
+
+function renderMessageLog(messages) {
+  if (messages.length === 0) {
+    nodes.messageLog.innerHTML = '<p class="muted">No successful messages recorded yet.</p>';
+    return;
+  }
+
+  nodes.messageLog.innerHTML = messages
+    .map((entry) => `
+      <article class="completionItem">
+        <div class="completionTitle">${escapeHtml(labelForMessageKind(entry.kind))}</div>
+        <div class="completionMeta">
+          Sent ${escapeHtml(formatDateTime(entry.sentAt))}
+          ${entry.recipientPhone ? ` · To ${escapeHtml(entry.recipientPhone)}` : ""}
+        </div>
+        ${entry.subject ? `<div class="completionMeta">${escapeHtml(entry.subject)}</div>` : ""}
+        ${entry.preview ? `<div class="taskMeta">${escapeHtml(entry.preview)}</div>` : ""}
       </article>
     `)
     .join("");
@@ -267,6 +315,7 @@ async function loadSettings() {
   render();
   await loadEvents();
   await loadCompletionLog();
+  await loadMessageLog();
 }
 
 async function saveSettings(options = {}) {
@@ -340,6 +389,7 @@ document.querySelector("#saveSettings").addEventListener("click", async () => {
     await saveSettings();
     await loadEvents();
     await loadCompletionLog();
+    await loadMessageLog();
     showToast("Settings saved");
   } catch (err) {
     showToast(err.message);
@@ -352,6 +402,7 @@ document.querySelector("#sendTest").addEventListener("click", async () => {
     const response = await fetch(`/api/send-test/${activeProfileId}`, { method: "POST" });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || "Could not send test.");
+    await loadMessageLog();
     showToast("Morning test sent");
   } catch (err) {
     showToast(err.message);
@@ -364,6 +415,7 @@ document.querySelector("#sendCheckInTest").addEventListener("click", async () =>
     const response = await fetch(`/api/send-checkin-test/${activeProfileId}`, { method: "POST" });
     const body = await response.json();
     if (!response.ok) throw new Error(body.error || "Could not send check-in.");
+    await loadMessageLog();
     showToast(body.skipped ? "No open tasks for check-in" : "Evening test sent");
   } catch (err) {
     showToast(err.message);
@@ -397,6 +449,8 @@ document.querySelector("#addProfile").addEventListener("click", () => {
   render();
   queueAutoSave();
   loadEvents();
+  loadCompletionLog();
+  loadMessageLog();
 });
 
 document.querySelectorAll("input, textarea").forEach((node) => {

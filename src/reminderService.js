@@ -385,7 +385,7 @@ Starts at ${eventStartForMessage(event, timezone)}.
 This is your ${leadMinutes}-minute reminder.${location}`;
 }
 
-async function sendTextMessage(profile, message) {
+async function sendTextMessage(profile, message, metadata = {}) {
   if (!profile.smsEnabled) {
     return { skipped: true, reason: "sms-disabled" };
   }
@@ -402,18 +402,22 @@ async function sendTextMessage(profile, message) {
     return { skipped: true, reason: "missing-message-content" };
   }
 
-  await sendSendblueMessage({
+  const payload = await sendSendblueMessage({
     to: profile.recipientPhone,
     content,
   });
+  await recordSuccessfulMessage(profile, message, metadata, payload);
 
-  return { skipped: false };
+  return { skipped: false, payload };
 }
 
-async function sendProfileMessage(profile, _subject, message) {
+async function sendProfileMessage(profile, subject, message, metadata = {}) {
   const deliveries = [];
 
-  const smsResult = await sendTextMessage(profile, message);
+  const smsResult = await sendTextMessage(profile, message, {
+    ...metadata,
+    subject,
+  });
   if (!smsResult.skipped) {
     deliveries.push("sms");
   }
@@ -428,7 +432,11 @@ async function sendProfileMessage(profile, _subject, message) {
 async function sendProfileEventText(profile, event, leadMinutes) {
   const smsResult = await sendTextMessage(
     profile,
-    buildEventNotification(profile, event, leadMinutes)
+    buildEventNotification(profile, event, leadMinutes),
+    {
+      kind: "event-reminder",
+      subject: event.summary || "Event reminder",
+    }
   );
   if (smsResult.skipped) {
     return { skipped: true, reason: smsResult.reason };
@@ -444,7 +452,9 @@ async function sendProfileSummary(profileId, subject = "Daily reminder summary",
   }
   if (profile.completionLinksEnabled === false) {
     const events = await getEventsForProfile(profileId, { days: 1 });
-    return sendProfileMessage(profile, subject, buildDailySummary(profile, events));
+    return sendProfileMessage(profile, subject, buildDailySummary(profile, events), {
+      kind: "morning-summary",
+    });
   }
 
   const { getTasksForProfile, buildTaskSummaryMessage } = require("./taskService");
@@ -453,7 +463,8 @@ async function sendProfileSummary(profileId, subject = "Daily reminder summary",
   return sendProfileMessage(
     profile,
     subject,
-    buildTaskSummaryMessage(profile, tasks, { baseUrl })
+    buildTaskSummaryMessage(profile, tasks, { baseUrl }),
+    { kind: "morning-summary" }
   );
 }
 
@@ -463,6 +474,56 @@ function getNotificationState() {
 
 async function saveNotificationState(state) {
   return store.setJson("notificationState", state);
+}
+
+function getMessageLogState() {
+  return store.getJson("messageLog", () => ({ entries: [] }));
+}
+
+async function saveMessageLogState(state) {
+  return store.setJson("messageLog", state);
+}
+
+function summarizeMessageContent(message) {
+  const content = typeof message === "string" ? message : message?.text || "";
+  return String(content)
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 280);
+}
+
+async function recordSuccessfulMessage(profile, message, metadata = {}, providerPayload = null) {
+  const state = getMessageLogState();
+  const entries = Array.isArray(state.entries) ? state.entries : [];
+  entries.unshift({
+    id: crypto.randomUUID(),
+    profileId: profile.id,
+    profileName: profile.name,
+    channel: "sms",
+    kind: metadata.kind || "message",
+    subject: metadata.subject || "",
+    recipientPhone: profile.recipientPhone || "",
+    preview: summarizeMessageContent(message),
+    sentAt: new Date().toISOString(),
+    provider: "sendblue",
+    providerMessageId:
+      providerPayload?.message_handle ||
+      providerPayload?.message_id ||
+      providerPayload?.id ||
+      "",
+  });
+  state.entries = entries.slice(0, 500);
+  await saveMessageLogState(state);
+}
+
+function getMessageHistory(profileId, options = {}) {
+  const limit = Math.max(1, Number(options.limit || 50));
+  const state = getMessageLogState();
+  const entries = Array.isArray(state.entries) ? state.entries : [];
+  return entries
+    .filter((entry) => entry.profileId === profileId)
+    .sort((left, right) => String(right.sentAt).localeCompare(String(left.sentAt)))
+    .slice(0, limit);
 }
 
 function getCalendarState() {
@@ -582,7 +643,8 @@ async function sendProfileCheckIn(profileId, subject = "Task check-in") {
   const deliveries = await sendProfileMessage(
     profile,
     subject,
-    buildCheckInMessage(profile, openTasks, { baseUrl })
+    buildCheckInMessage(profile, openTasks, { baseUrl }),
+    { kind: "evening-check-in" }
   );
 
   return { skipped: false, taskCount: openTasks.length, deliveries };
@@ -596,4 +658,5 @@ module.exports = {
   sendProfileSummary,
   sendProfileCheckIn,
   sendDueEventNotifications,
+  getMessageHistory,
 };
