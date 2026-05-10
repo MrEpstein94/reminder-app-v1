@@ -813,14 +813,8 @@ app.post("/webhook/sendblue", async (req, res) => {
 
 app.post("/api/send-test/:profileId", async (req, res) => {
   try {
-    sendProfileSummary(req.params.profileId, "Reminder app test", {
-      waitForRefresh: true,
-      maxWaitMs: 10 * 60 * 1000,
-      pollMs: 60 * 1000,
-    }).catch((error) => {
-      console.error(`Reminder app test failed for ${req.params.profileId}: ${error.message}`);
-    });
-    res.json({ ok: true, queued: true });
+    const result = await sendProfileSummary(req.params.profileId, "Reminder app test");
+    res.json({ ok: true, queued: false, result });
   } catch (error) {
     res.status(400).json({ error: error.message });
   }

@@ -70,7 +70,9 @@ function normalizeProfile(profile = {}, fallback = {}) {
     dailySummaryMinute: String(profile.dailySummaryMinute || fallback.dailySummaryMinute || "30"),
     eveningCheckInHour: String(profile.eveningCheckInHour || fallback.eveningCheckInHour || "20"),
     eveningCheckInMinute: String(profile.eveningCheckInMinute || fallback.eveningCheckInMinute || "0"),
-    rolloverDays: String(profile.rolloverDays || fallback.rolloverDays || "150"),
+    rolloverDays: String(
+      profile.rolloverDays ?? fallback.rolloverDays ?? "150"
+    ),
     titleIncludes: Array.from(profile.titleIncludes || fallback.titleIncludes || [])
       .map((value) => String(value).trim())
       .filter(Boolean),
