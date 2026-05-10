@@ -171,6 +171,14 @@ function buildConnectionString() {
   return `postgresql://postgres:${encodeURIComponent(password)}@db.${ref}.supabase.co:5432/postgres`;
 }
 
+function hasExplicitConnectionString() {
+  return Boolean(process.env.SUPABASE_DB_URL || process.env.DATABASE_URL);
+}
+
+function hasDerivedSupabaseDbConfig() {
+  return Boolean(getSupabaseProjectRef() && process.env.SUPABASE_DB_PASSWORD);
+}
+
 function hasSupabaseRestConfig() {
   return Boolean(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY);
 }
@@ -190,7 +198,13 @@ function buildSupabaseRestConfig() {
 
 class AppStore {
   constructor() {
-    this.mode = buildConnectionString() ? "supabase" : hasSupabaseRestConfig() ? "supabase-rest" : "local";
+    this.mode = hasExplicitConnectionString()
+      ? "supabase"
+      : hasSupabaseRestConfig()
+        ? "supabase-rest"
+        : hasDerivedSupabaseDbConfig()
+          ? "supabase"
+          : "local";
     this.stateCache = new Map();
     this.dadCodes = [];
     this.nextDadCodeId = 1;
